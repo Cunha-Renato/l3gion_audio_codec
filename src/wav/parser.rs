@@ -1,32 +1,82 @@
-use crate::{file_parser::LgAudioFileParser, reader::{self, error::LgReadFileErr}, wav::chunk::fmt::WavFmtChunk};
+use std::marker::PhantomData;
+
+use crate::{parser::{error::LgAudioParseErr, LgAudioFileParser}, reader, wav::chunk::{data::WavDataChunk, fact::WavFactChunk, fmt::WavFmtChunk}};
+
+use super::chunk::LgWavChunks;
 
 const FMT: &str = "fmt ";
 const FACT: &str = "fact";
 const DATA: &str = "data";
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct LgWavParser {}
-impl LgAudioFileParser for LgWavParser {
-    type T = Result<(), LgReadFileErr>;
+#[derive(Debug, Clone, Copy)]
+pub struct LgWavParser<T>
+where 
+    T: TryFrom<Vec<u8>>,
+    T: Into<Vec<u8>>,
+    T: std::fmt::Debug,
+    T: Clone,
+{
+    _phantom: PhantomData<T>,
+}
+impl std::default::Default for LgWavParser<Vec<u8>> {
+    fn default() -> Self {
+        Self {
+            _phantom: PhantomData
+        }
+    }
+}
+impl<T> LgAudioFileParser for LgWavParser<T> 
+where 
+    T: TryFrom<Vec<u8>>,
+    T: Into<Vec<u8>>,
+    T: std::fmt::Debug,
+    T: Clone,
+    <T as TryFrom<Vec<u8>>>::Error: std::error::Error + 'static
+{
+    type R = Result<LgWavChunks<T>, LgAudioParseErr>;
 
-    fn parse(&mut self, path: impl AsRef<str>) -> Self::T {
+    fn parse(&mut self, path: impl AsRef<str>) -> Result<LgWavChunks<T>, LgAudioParseErr> {
         let bytes = reader::read_file(path, "wav, wave")?;
+        let mut result = LgWavChunks::<T>::default();
 
         if self.header_valid(&bytes[..12]) {
             let chunks = self.parse_chunks(bytes);
             for (ck_id, ck_data) in chunks {
-                println!("{ck_id}, {}", ck_data.len());
                 match ck_id.as_str() {
-                    FMT => println!("{:#?}", WavFmtChunk::from(ck_data.len(), &ck_data)),
+                    FMT => result.fmt = WavFmtChunk::try_from(ck_data).unwrap(),
+                    FACT => result.fact = Some(WavFactChunk::<T>::try_from(ck_data).unwrap()),
+                    DATA => result.data = WavDataChunk::from(ck_data),
                     _ => (),
                 }
             }
         }
         
-        Ok(())
+        Ok(result)
     }
 }
-impl LgWavParser {
+impl<T> LgWavParser<T>
+where 
+    T: TryFrom<Vec<u8>>,
+    T: Into<Vec<u8>>,
+    T: std::fmt::Debug,
+    T: Clone
+{
+    pub fn new() -> Self {
+        Self {
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn fact_ext<U>(self) -> LgWavParser<U>
+    where 
+        U: TryFrom<Vec<u8>>,
+        U: Into<Vec<u8>>,
+        U: std::fmt::Debug,
+        U: Clone 
+    {
+        LgWavParser::<U>::new()
+    }
+
     fn header_valid(&self, bytes: &[u8]) -> bool {
         match (
             &*String::from_utf8_lossy(&bytes[..4]), 
