@@ -21,7 +21,7 @@ impl FromLeBytesSlice for u32 {
 }
 impl FromLeBytesSlice for u128 {
     fn first_from_le_bytes(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= 4);
+        assert!(bytes.len() >= 15);
         Self::from_le_bytes([
             bytes[0], 
             bytes[1],

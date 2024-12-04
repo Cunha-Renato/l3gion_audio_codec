@@ -1,43 +1,41 @@
 use std::fmt::Debug;
 
-use crate::primitive_tool::FromLeBytesSlice;
+use crate::{primitive_tool::FromLeBytesSlice, reader::LgVecReader};
+
+pub trait WavFactExt: Debug + Default + Clone + Into<Vec<u8>> + for<'a> From<&'a [u8]> {}
 
 #[derive(Debug, Clone)]
 pub struct WavFactChunk<T> 
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: Debug,
-    T: Clone,
+    T: WavFactExt
 {
     pub ck_size: usize,
     pub sample_length: u32,
     pub other: T,
 }
-impl<T> TryFrom<Vec<u8>> for WavFactChunk<T> 
+impl<T> WavFactChunk<T> 
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: Debug,
-    T: Clone,
-    <T as TryFrom<Vec<u8>>>::Error: std::error::Error + 'static
+    T: WavFactExt,
 {
-    type Error = Box<dyn std::error::Error>;
+    pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Self {
+        let (sample_length, other) = if ck_size > 4 {
+            (
+                u32::first_from_le_bytes(bytes.read_quantity(4)),
+                T::from(bytes.read_quantity(ck_size - 4))
+            )
 
-    fn try_from(mut bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let ck_size = bytes.len();
-
-        let sample_length = if ck_size > 4 {
-            u32::first_from_le_bytes(&bytes.split_off(4))
         }
         else {
-            u32::first_from_le_bytes(&std::mem::take(&mut bytes))
+            (
+                u32::first_from_le_bytes(bytes.read_quantity(4)),
+                T::default(),
+            )
         };
 
-        Ok(Self {
+        Self {
             ck_size,
             sample_length,
-            other: T::try_from(bytes)?,
-        })
+            other,
+        }
     }
 }

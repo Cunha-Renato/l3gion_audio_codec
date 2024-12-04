@@ -1,3 +1,5 @@
+use crate::reader::LgVecReader;
+
 #[derive(Default, Clone)]
 pub struct WavDataChunk {
     ck_size: usize,
@@ -16,22 +18,6 @@ impl std::fmt::Debug for WavDataChunk {
         write!(f, "{self}")
     }
 }
-impl From<Vec<u8>> for WavDataChunk {
-    fn from(mut bytes: Vec<u8>) -> Self {
-        let ck_size = bytes.len();
-        
-        // If is odd
-        if ck_size % 2 != 0 {
-            // Remove padding byte.
-            bytes.pop();
-        }
-        
-        Self {
-            ck_size,
-            data: bytes,
-        }
-    }
-}
 impl Into<Vec<u8>> for WavDataChunk {
     fn into(self) -> Vec<u8> {
         let mut result = Vec::with_capacity(self.ck_size);
@@ -44,5 +30,21 @@ impl Into<Vec<u8>> for WavDataChunk {
         }
 
         result
+    }
+}
+impl WavDataChunk {
+    pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Self {
+        let mut data = bytes.read_quantity(ck_size).to_vec();
+        
+        // If is odd
+        if ck_size % 2 != 0 {
+            // Remove padding byte.
+            data.pop();
+        }
+        
+        Self {
+            ck_size,
+            data,
+        }
     }
 }

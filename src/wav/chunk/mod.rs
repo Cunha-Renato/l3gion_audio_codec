@@ -1,29 +1,25 @@
 use data::WavDataChunk;
-use fact::WavFactChunk;
+use fact::{WavFactChunk, WavFactExt};
 use fmt::WavFmtChunk;
 
 pub mod fmt;
 pub mod fact;
 pub mod data;
 
+impl WavFactExt for Vec<u8> {}
+
 #[derive(Debug, Clone)]
-pub struct LgWavChunks<T> 
+pub struct LgWavRaw<T> 
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: std::fmt::Debug,
-    T: Clone,
+    T: WavFactExt
 {
     pub fmt: WavFmtChunk,
     pub fact: Option<WavFactChunk<T>>,
     pub data: WavDataChunk,
 }
-impl<T> std::default::Default for LgWavChunks<T>
+impl<T> std::default::Default for LgWavRaw<T>
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: std::fmt::Debug,
-    T: Clone,
+    T: WavFactExt
 {
     fn default() -> Self {
         Self { 

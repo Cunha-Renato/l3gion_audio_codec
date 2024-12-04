@@ -1,8 +1,9 @@
 use std::marker::PhantomData;
-
+use crate::primitive_tool::FromLeBytesSlice;
+use crate::reader::LgVecReader;
 use crate::{parser::{error::LgAudioParseErr, LgAudioFileParser}, reader, wav::chunk::{data::WavDataChunk, fact::WavFactChunk, fmt::WavFmtChunk}};
-
-use super::chunk::LgWavChunks;
+use super::chunk::fact::WavFactExt;
+use super::chunk::LgWavRaw;
 
 const FMT: &str = "fmt ";
 const FACT: &str = "fact";
@@ -11,10 +12,7 @@ const DATA: &str = "data";
 #[derive(Debug, Clone, Copy)]
 pub struct LgWavParser<T>
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: std::fmt::Debug,
-    T: Clone,
+    T: WavFactExt
 {
     _phantom: PhantomData<T>,
 }
@@ -27,39 +25,21 @@ impl std::default::Default for LgWavParser<Vec<u8>> {
 }
 impl<T> LgAudioFileParser for LgWavParser<T> 
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: std::fmt::Debug,
-    T: Clone,
-    <T as TryFrom<Vec<u8>>>::Error: std::error::Error + 'static
+    T: WavFactExt,
 {
-    type R = Result<LgWavChunks<T>, LgAudioParseErr>;
+    type R = Result<LgWavRaw<T>, LgAudioParseErr>;
 
-    fn parse(&mut self, path: impl AsRef<str>) -> Result<LgWavChunks<T>, LgAudioParseErr> {
-        let bytes = reader::read_file(path, "wav, wave")?;
-        let mut result = LgWavChunks::<T>::default();
+    fn parse(&mut self, path: impl AsRef<str>) -> Result<LgWavRaw<T>, LgAudioParseErr> {
+        let mut bytes: LgVecReader<u8> = reader::read_file(path, "wav, wave")?.into();
 
-        if self.header_valid(&bytes[..12]) {
-            let chunks = self.parse_chunks(bytes);
-            for (ck_id, ck_data) in chunks {
-                match ck_id.as_str() {
-                    FMT => result.fmt = WavFmtChunk::try_from(ck_data).unwrap(),
-                    FACT => result.fact = Some(WavFactChunk::<T>::try_from(ck_data).unwrap()),
-                    DATA => result.data = WavDataChunk::from(ck_data),
-                    _ => (),
-                }
-            }
-        }
-        
-        Ok(result)
+        if !self.header_valid(bytes.read_quantity(12)) { return Err(LgAudioParseErr::PARSE("Invalid WAV header!".to_string())); }
+
+        Ok(self.parse_chunks(bytes)?)
     }
 }
 impl<T> LgWavParser<T>
 where 
-    T: TryFrom<Vec<u8>>,
-    T: Into<Vec<u8>>,
-    T: std::fmt::Debug,
-    T: Clone
+    T: WavFactExt,
 {
     pub fn new() -> Self {
         Self {
@@ -69,10 +49,7 @@ where
 
     pub fn fact_ext<U>(self) -> LgWavParser<U>
     where 
-        U: TryFrom<Vec<u8>>,
-        U: Into<Vec<u8>>,
-        U: std::fmt::Debug,
-        U: Clone 
+        U: WavFactExt
     {
         LgWavParser::<U>::new()
     }
@@ -88,34 +65,34 @@ where
     }
     
     // Returns all the valid chunks (id, data).
-    fn parse_chunks(&self, bytes: Vec<u8>) -> Vec<(String, Vec<u8>)> {
-        let mut result = Vec::default();
-        let mut cursor = 12;
+    fn parse_chunks(&self, mut bytes: LgVecReader<u8>) -> Result<LgWavRaw<T>, LgAudioParseErr> {
+        let mut result = LgWavRaw::default();
 
-        while cursor < bytes.len() {
+        while !bytes.reach_end() {
             // Parsing the chunk id and it's size
-            let ck_id = String::from_utf8_lossy(&bytes[cursor..cursor + 4]);
-            let ck_size = u32::from_le_bytes([
-                bytes[cursor + 4], 
-                bytes[cursor + 5], 
-                bytes[cursor + 6], 
-                bytes[cursor + 7]
-            ]);
-            cursor += 8;
+            let ck_id = String::from_utf8_lossy(bytes.read_quantity(4)).to_string();
+            let ck_size = u32::first_from_le_bytes(bytes.read_quantity(4)) as usize;
 
-            // The rest of the chunk is the chunk data.
-            result.push((
-                ck_id.to_string(), 
-                bytes[cursor..cursor + ck_size as usize].to_vec()
-            ));
+            match ck_id.as_str() {
+                FMT => result.fmt = WavFmtChunk::read_bytes(ck_size, &mut bytes)?,
+                FACT => result.fact = if ck_size >= 4 {
+                    Some(WavFactChunk::<T>::read_bytes(ck_size, &mut bytes))
+                }
+                else { 
+                    bytes.skip_quantity(ck_size);
+                    None
+                },
+                DATA => {
+                    result.data = WavDataChunk::read_bytes(ck_size, &mut bytes);
 
-            // More info could be stored in the file, but we don't care, so as soon as we
-            // see the data chunk we end parsing
-            if &ck_id.to_string() == DATA { return result; }
-
-            cursor += ck_size as usize;
+                    // More info could be stored in the file, but we don't care, so as soon as we
+                    // see the data chunk we end parsing
+                    break;
+                },
+                _ => (),
+            }
         }
 
-        result
+        Ok(result)
     }
 }
