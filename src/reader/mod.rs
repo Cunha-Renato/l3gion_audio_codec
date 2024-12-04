@@ -1,6 +1,6 @@
 pub mod error;
 
-use std::{io::Read, ops::Deref};
+use std::{io::Read, ops::{Deref, DerefMut}};
 use error::LgReadAudioFileErr;
 
 #[derive(Debug, Default, Clone)]
@@ -28,39 +28,66 @@ impl<T> Deref for LgVecReader<T> {
         &self.data
     }
 }
+impl<T> DerefMut for LgVecReader<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
 impl<T> LgVecReader<T> {
     pub fn inner(self) -> Vec<T> {
         self.data
     }
     
-    /// If (cursor + n) >= capacity, it will read_to_end.
-    pub fn read_quantity(&mut self, n: usize) -> &[T] {
-        let result = if (self.cursor + n) >= self.data.len() {
-            return self.read_to_end();
-        }
-        else {
-            &self.data[self.cursor..self.cursor + n]
-        };
+    /// Errors if (cursor + n) > capacity || cursor >= capacity.
+    pub fn read_quantity(&mut self, n: usize) -> std::io::Result<&[T]> {
+        self.check_n(n-1)?;
+        self.check_n(0)?;
 
+        let result = &self.data[self.cursor..self.cursor + n];
         self.cursor += n;
         
-        result
+        Ok(result)
     }
 
-    pub fn read_to_end(&mut self) -> &[T] {
+    /// Errors if cursor >= capacity.
+    pub fn read_to_end(&mut self) -> std::io::Result<&[T]> {
+        self.check_n(0)?;
         let result = &self.data[self.cursor..];
         self.cursor = self.data.len();
         
-        result
+        Ok(result)
     }
 
-    /// Will panic if n >= capacity.
-    pub fn skip_quantity(&mut self, n: usize) {
+    /// Errors if (cursor + n) >= capacity.
+    pub fn skip_quantity(&mut self, n: usize) -> std::io::Result<()> {
+        self.check_n(n)?;
         self.cursor += n;
+        
+        Ok(())
     }
     
     pub fn reach_end(&self) -> bool {
-        self.cursor >= self.data.len()
+        self.check_n(0).is_err()
+    }
+
+    pub fn take_quantity(&mut self, n: usize) -> Self {
+        let cursor = self.cursor;
+
+        let mut result = self.split_off(cursor);
+        let mut right = result.split_off(n);
+
+        self.data.append(&mut right);
+
+        result.into()
+    }
+}
+impl<T> LgVecReader<T> {
+    fn check_n(&self, n: usize) -> std::io::Result<()> {
+        if (self.cursor + n) >= self.len() {
+            return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+        }
+        
+        Ok(())
     }
 }
 

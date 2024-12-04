@@ -1,4 +1,4 @@
-use crate::reader::LgVecReader;
+use crate::{parser::error::LgAudioParseErr, reader::LgVecReader};
 
 #[derive(Default, Clone)]
 pub struct WavDataChunk {
@@ -33,8 +33,8 @@ impl Into<Vec<u8>> for WavDataChunk {
     }
 }
 impl WavDataChunk {
-    pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Self {
-        let mut data = bytes.read_quantity(ck_size).to_vec();
+    pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Result<Self, LgAudioParseErr> {
+        let mut data = bytes.read_quantity(ck_size)?.to_vec();
         
         // If is odd
         if ck_size % 2 != 0 {
@@ -42,9 +42,9 @@ impl WavDataChunk {
             data.pop();
         }
         
-        Self {
+        Ok(Self {
             ck_size,
             data,
-        }
+        })
     }
 }

@@ -65,7 +65,7 @@ impl WavFmtChunk {
         
         // Adding padding
         let bytes = if ck_size < MAX_SIZE {
-            let mut bytes = bytes.read_quantity(ck_size).to_vec();
+            let mut bytes = bytes.read_quantity(ck_size)?.to_vec();
             bytes.append(&mut vec![0u8; MAX_SIZE - ck_size]);
 
             &mut bytes.into()
@@ -74,16 +74,16 @@ impl WavFmtChunk {
 
         Ok(Self {
             ck_size,
-            fmt_tag: WavFormatType::from(u16::first_from_le_bytes(bytes.read_quantity(2))),
-            number_channels: u16::first_from_le_bytes(bytes.read_quantity(2)),
-            samples_per_sec: u32::first_from_le_bytes(bytes.read_quantity(4)),
-            avg_bytes_per_sec: u32::first_from_le_bytes(bytes.read_quantity(4)),
-            block_align: u16::first_from_le_bytes(bytes.read_quantity(2)),
-            bits_per_sample: u16::first_from_le_bytes(bytes.read_quantity(2)),
-            cb_size: u16::first_from_le_bytes(bytes.read_quantity(2)),
-            valid_bits_per_sample: u16::first_from_le_bytes(bytes.read_quantity(2)),
-            channel_mask: u32::first_from_le_bytes(bytes.read_quantity(4)),
-            sub_format: u128::first_from_le_bytes(bytes.read_quantity(16)),
+            fmt_tag: WavFormatType::from(u16::first_from_le_bytes(bytes.read_quantity(2)?)),
+            number_channels: u16::first_from_le_bytes(bytes.read_quantity(2)?),
+            samples_per_sec: u32::first_from_le_bytes(bytes.read_quantity(4)?),
+            avg_bytes_per_sec: u32::first_from_le_bytes(bytes.read_quantity(4)?),
+            block_align: u16::first_from_le_bytes(bytes.read_quantity(2)?),
+            bits_per_sample: u16::first_from_le_bytes(bytes.read_quantity(2)?),
+            cb_size: u16::first_from_le_bytes(bytes.read_quantity(2)?),
+            valid_bits_per_sample: u16::first_from_le_bytes(bytes.read_quantity(2)?),
+            channel_mask: u32::first_from_le_bytes(bytes.read_quantity(4)?),
+            sub_format: u128::first_from_le_bytes(bytes.read_quantity(16)?),
         })
     }
 }

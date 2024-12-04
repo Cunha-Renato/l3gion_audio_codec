@@ -32,7 +32,7 @@ where
     fn parse(&mut self, path: impl AsRef<str>) -> Result<LgWavRaw<T>, LgAudioParseErr> {
         let mut bytes: LgVecReader<u8> = reader::read_file(path, "wav, wave")?.into();
 
-        if !self.header_valid(bytes.read_quantity(12)) { return Err(LgAudioParseErr::PARSE("Invalid WAV header!".to_string())); }
+        if !self.header_valid(bytes.read_quantity(12)?) { return Err(LgAudioParseErr::PARSE("Invalid WAV header!".to_string())); }
 
         Ok(self.parse_chunks(bytes)?)
     }
@@ -70,20 +70,20 @@ where
 
         while !bytes.reach_end() {
             // Parsing the chunk id and it's size
-            let ck_id = String::from_utf8_lossy(bytes.read_quantity(4)).to_string();
-            let ck_size = u32::first_from_le_bytes(bytes.read_quantity(4)) as usize;
+            let ck_id = String::from_utf8_lossy(bytes.read_quantity(4)?).to_string();
+            let ck_size = u32::first_from_le_bytes(bytes.read_quantity(4)?) as usize;
 
             match ck_id.as_str() {
                 FMT => result.fmt = WavFmtChunk::read_bytes(ck_size, &mut bytes)?,
                 FACT => result.fact = if ck_size >= 4 {
-                    Some(WavFactChunk::<T>::read_bytes(ck_size, &mut bytes))
+                    Some(WavFactChunk::<T>::read_bytes(ck_size, &mut bytes)?)
                 }
                 else { 
-                    bytes.skip_quantity(ck_size);
+                    bytes.skip_quantity(ck_size)?;
                     None
                 },
                 DATA => {
-                    result.data = WavDataChunk::read_bytes(ck_size, &mut bytes);
+                    result.data = WavDataChunk::read_bytes(ck_size, &mut bytes)?;
 
                     // More info could be stored in the file, but we don't care, so as soon as we
                     // see the data chunk we end parsing
