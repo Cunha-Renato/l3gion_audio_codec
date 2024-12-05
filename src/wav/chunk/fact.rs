@@ -5,18 +5,23 @@ use crate::{parser::error::LgAudioParseErr, primitive_tool::FromLeBytesSlice, re
 pub trait WavFactExt: Debug + Default + Clone + Into<Vec<u8>> + for<'a> From<&'a [u8]> {}
 
 #[derive(Debug, Clone)]
-pub struct WavFactChunk<T> 
-where 
-    T: WavFactExt
-{
+pub struct WavFactChunk<T: WavFactExt> {
     pub ck_size: usize,
     pub sample_length: u32,
     pub other: T,
 }
-impl<T> WavFactChunk<T> 
-where 
-    T: WavFactExt,
-{
+impl<T: WavFactExt> Into<Vec<u8>> for WavFactChunk<T> {
+    fn into(self) -> Vec<u8> {
+        let mut result = Vec::with_capacity(self.ck_size + 4);
+        result.extend((self.ck_size as u32).to_le_bytes());
+        result.extend(self.sample_length.to_le_bytes());
+        result.extend(self.other.into());
+        result.truncate(self.ck_size + 4);
+        
+        result
+    }
+}
+impl<T: WavFactExt> WavFactChunk<T> {
     pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Result<Self, LgAudioParseErr> {
         let (sample_length, other) = if ck_size > 4 {
             (
@@ -37,5 +42,9 @@ where
             sample_length,
             other,
         })
+    }
+    
+    pub fn to_bytes(self) -> Vec<u8> {
+        self.into()
     }
 }

@@ -1,9 +1,11 @@
+use std::ops::Deref;
+
 use crate::{parser::error::LgAudioParseErr, reader::LgVecReader};
 
 #[derive(Default, Clone)]
 pub struct WavDataChunk {
-    ck_size: usize,
-    data: Vec<u8>,
+    pub ck_size: usize,
+    pub data: Vec<u8>,
 }
 impl std::fmt::Display for WavDataChunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -18,10 +20,17 @@ impl std::fmt::Debug for WavDataChunk {
         write!(f, "{self}")
     }
 }
+impl Deref for WavDataChunk {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
 impl Into<Vec<u8>> for WavDataChunk {
     fn into(self) -> Vec<u8> {
-        let mut result = Vec::with_capacity(self.ck_size);
-        result.extend(self.ck_size.to_le_bytes());
+        let mut result = Vec::with_capacity(self.ck_size + 4);
+        result.extend((self.ck_size as u32).to_le_bytes());
         result.extend(self.data);
 
         // Padding byte.
@@ -46,5 +55,9 @@ impl WavDataChunk {
             ck_size,
             data,
         })
+    }
+    
+    pub fn to_bytes(self) -> Vec<u8> {
+        self.into()
     }
 }

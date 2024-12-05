@@ -52,10 +52,6 @@ pub struct WavFmtChunk {
     pub sub_format: u128,
 }
 impl WavFmtChunk {
-    pub fn to_vec(self) -> Vec<u8> {
-        self.into()
-    }
-
     pub fn read_bytes(ck_size: usize, bytes: &mut LgVecReader<u8>) -> Result<Self, LgAudioParseErr> {
         if ck_size < COMMON_SIZE 
             || ck_size > MAX_SIZE 
@@ -86,23 +82,28 @@ impl WavFmtChunk {
             sub_format: u128::first_from_le_bytes(bytes.read_quantity(16)?),
         })
     }
+    
+    pub fn to_bytes(self) -> Vec<u8> {
+        self.into()
+    }
 }
 impl Into<Vec<u8>> for WavFmtChunk {
     fn into(self) -> Vec<u8> {
-        let mut result = Vec::with_capacity(self.ck_size);
+        let mut result = Vec::with_capacity(self.ck_size + 4);
 
         let fmt_tag: u16 = self.fmt_tag.into();
-        result.extend(fmt_tag.to_le_bytes().iter());
-        result.extend(self.number_channels.to_le_bytes().iter());
-        result.extend(self.samples_per_sec.to_le_bytes().iter());
-        result.extend(self.avg_bytes_per_sec.to_le_bytes().iter());
-        result.extend(self.block_align.to_le_bytes().iter());
-        result.extend(self.bits_per_sample.to_le_bytes().iter());
-        result.extend(self.cb_size.to_le_bytes().iter());
-        result.extend(self.valid_bits_per_sample.to_le_bytes().iter());
-        result.extend(self.channel_mask.to_le_bytes().iter());
-        result.extend(self.sub_format.to_le_bytes().iter());
-        result.truncate(self.ck_size);
+        result.extend((self.ck_size as u32).to_le_bytes());
+        result.extend(fmt_tag.to_le_bytes());
+        result.extend(self.number_channels.to_le_bytes());
+        result.extend(self.samples_per_sec.to_le_bytes());
+        result.extend(self.avg_bytes_per_sec.to_le_bytes());
+        result.extend(self.block_align.to_le_bytes());
+        result.extend(self.bits_per_sample.to_le_bytes());
+        result.extend(self.cb_size.to_le_bytes());
+        result.extend(self.valid_bits_per_sample.to_le_bytes());
+        result.extend(self.channel_mask.to_le_bytes());
+        result.extend(self.sub_format.to_le_bytes());
+        result.truncate(self.ck_size + 4);
         
         result
     }
