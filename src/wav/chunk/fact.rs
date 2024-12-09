@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::{parser::error::LgAudioParseErr, primitive_tool::FromLeBytesSlice, reader::LgVecReader};
 
 pub trait WavFactExt: Debug + Default + Clone + Into<Vec<u8>> + for<'a> From<&'a [u8]> {}
+impl WavFactExt for Vec<u8> {}
 
 #[derive(Debug, Clone)]
 pub struct WavFactChunk<T: WavFactExt> {

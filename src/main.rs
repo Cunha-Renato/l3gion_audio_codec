@@ -1,6 +1,4 @@
-use std::io::Write;
-
-use lg_audiof::{wav::parser::LgWavParser, LgAudioFileParser};
+use lg_audiof::{wav::{decode_bytes, parser::LgWavRaw}, LgAudioFileParser};
 
 fn main() {
     let file_names = [
@@ -12,11 +10,12 @@ fn main() {
         "samples/sine_pcm.wav"
     ];
 
-    let _dec = LgWavParser::default()
-        .parse(file_names[3])
+    let mut dec = LgWavRaw::default()
+        .parse(file_names[4])
         .unwrap()
-        .decode()
+        .decode_with(|bytes, fmt, _| {
+            let sample = decode_bytes(bytes, fmt.fmt_tag, fmt.bits_per_sample).ok()?;
+            Some(sample as i16)
+        })
         .unwrap();
-    
-    std::fs::File::create("test.wav").unwrap().write(&_dec.to_bytes().unwrap()).unwrap();
 }

@@ -13,6 +13,19 @@ pub enum WavFormatType {
     WAVE_FORMAT_MULAW,
     WAVE_FORMAT_EXTENSIBLE,
 }
+impl std::fmt::Display for WavFormatType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            WavFormatType::WAVE_FORMAT_PCM => "WAVE_FORMAT_PCM",
+            WavFormatType::WAVE_FORMAT_IEEE_FLOAT => "WAVE_FORMAT_IEEE_FLOAT",
+            WavFormatType::WAVE_FORMAT_ALAW => "WAVE_FORMAT_ALAW",
+            WavFormatType::WAVE_FORMAT_MULAW => "WAVE_FORMAT_MULAW",
+            WavFormatType::WAVE_FORMAT_EXTENSIBLE => "WAVE_FORMAT_EXTENSIBLE",
+        };
+
+        write!(f, "{msg}")
+    }
+}
 impl From<u16> for WavFormatType {
     fn from(code: u16) -> Self {
         match code {
