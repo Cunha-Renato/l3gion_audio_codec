@@ -1,204 +1,161 @@
-pub mod parser;
+use std::fs::File;
+use std::marker::PhantomData;
+use std::{ffi::OsStr, fmt::Debug, io};
+
+use chunk::WavFmt;
+use reader::LgWavReader;
+
+use crate::error::Error;
+use crate::reader::{LgFileReader, LgReader};
+use crate::Result;
+
+pub mod reader;
 pub mod chunk;
-pub mod alaw;
-pub mod mulaw;
 
-use crate::{byte_conversion::LeByteConversion, parser::error::LgAudioParseErr};
-use alaw::{encode_alaw, ALAW_DECOMPRESS_TABLE};
-use mulaw::{encode_mulaw, MULAW_DECOMPRESS_TABLE};
-use chunk::{data::WavDataChunk, fact::{WavFactChunk, WavFactExt}, fmt::{WavFmtChunk, WavFormatType}};
+const WAVE_FORMAT_PCM: u16 =        0x0001;
+const WAVE_FORMAT_IEEE_FLOAT: u16 = 0x0003;
+const WAVE_FORMAT_ALAW: u16 =       0x0006;
+const WAVE_FORMAT_MULAW: u16 =      0x0007;
+const WAVE_FORMAT_EXTENSIBLE: u16 = 0xFFFE;
 
-pub trait LgWavSampleType {}
-impl LgWavSampleType for u8 {}
-
-#[derive(Default, Clone)]
-pub struct LgWav<T: WavFactExt, D: LeByteConversion> {
-    pub fmt: WavFmtChunk,
-    pub fact: Option<WavFactChunk<T>>,
-    pub duration: f32,
-    pub samples: Vec<D>
+#[allow(non_camel_case_types)]
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub enum WavFmtTag {
+    #[default]
+    WAVE_FORMAT_PCM,
+    WAVE_FORMAT_IEEE_FLOAT,
+    WAVE_FORMAT_ALAW,
+    WAVE_FORMAT_MULAW,
+    WAVE_FORMAT_EXTENSIBLE,
+    OTHER(u16)
 }
-impl<T: WavFactExt, D: LeByteConversion> std::fmt::Debug for LgWav<T, D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LgWav")
-            .field("fmt", &self.fmt)
-            .field("fact", &self.fact)
-            .field("duration", &self.duration)
-            .field("samples_len", &self.samples.len())
-            .finish()
+impl From<u16> for WavFmtTag {
+    fn from(value: u16) -> Self {
+        match value {
+            WAVE_FORMAT_PCM =>          Self::WAVE_FORMAT_PCM,
+            WAVE_FORMAT_IEEE_FLOAT =>   Self::WAVE_FORMAT_IEEE_FLOAT,
+            WAVE_FORMAT_ALAW =>         Self::WAVE_FORMAT_ALAW,
+            WAVE_FORMAT_MULAW =>        Self::WAVE_FORMAT_MULAW,
+            WAVE_FORMAT_EXTENSIBLE =>   Self::WAVE_FORMAT_EXTENSIBLE,
+            _ => Self::OTHER(value),
+        }
     }
 }
-impl<T: WavFactExt, D: LeByteConversion> LgWav<T, D> {
-    /// This function just does the std ::from_le_bytes().
-    /// TODO: If you chose to have a different type for the samples use decode_as(), if you have your own format use decode_with().
-    fn decode_with<F>(
-        fmt: WavFmtChunk,
-        fact: Option<WavFactChunk<T>>,
-        mut data: WavDataChunk,
-        mut func: F,
-    ) -> Result<LgWav<T, D>, Box<dyn std::error::Error>> 
-    where F: FnMut(&[u8], &WavFmtChunk, &Option<WavFactChunk<T>>) -> Option<D>,
-    {
-        let num_samples = num_samples(data.len(), &fmt);
-        let data = std::mem::take(&mut data.data);
-
-        //TODO: This is waaaay to slow, like waay to slow. (even with rayon)
-        // maybe do a C like loop with index, maybe it's the chunks_exact? idk.
-        let samples = data.chunks_exact(fmt.bits_per_sample as usize / 8)
-            .filter_map(|bytes| func(bytes, &fmt, &fact))
-            .collect::<Vec<_>>();
-
-        if samples.len() != num_samples * fmt.number_channels as usize {
-            return Err("Failed to decode all samples!".into());
+impl Into<u16> for WavFmtTag {
+    fn into(self) -> u16 {
+        match self {
+            Self::WAVE_FORMAT_PCM =>        WAVE_FORMAT_PCM,
+            Self::WAVE_FORMAT_IEEE_FLOAT => WAVE_FORMAT_IEEE_FLOAT,
+            Self::WAVE_FORMAT_ALAW =>       WAVE_FORMAT_ALAW,
+            Self::WAVE_FORMAT_MULAW =>      WAVE_FORMAT_MULAW,
+            Self::WAVE_FORMAT_EXTENSIBLE => WAVE_FORMAT_EXTENSIBLE,
+            Self::OTHER(value) => value,
         }
+    }
+}
 
-        Ok(LgWav::<T, D> {
-            fmt,
-            fact,
-            duration: num_samples as f32 / fmt.samples_per_sec as f32,
-            samples,
+pub struct LgWav<R: io::Read> {
+    pub fmt: WavFmt,
+    sample_len: usize,
+
+    reader: LgWavReader<R>,
+}
+impl<R: io::Read> Debug for LgWav<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LgWav")
+        .field("fmt", &self.fmt)
+        .finish()
+    }
+}
+impl LgWav<io::BufReader<File>> {
+    pub fn decode(path: impl AsRef<OsStr>) -> Result<LgWav<io::BufReader<File>>> {
+        let file = File::open(std::path::Path::new(&path))?;
+        // Already checks the header.
+        let mut reader = LgWavReader::new(LgFileReader(io::BufReader::new(file)))?;
+        
+        // Just in case the fmt chunk is not present.
+        let mut fmt = Err(Error::WrongFmt);
+        let sample_len;
+
+        loop { 
+            let chunk = reader.read_next_chunk();
+            match chunk? {
+                chunk::WavChunks::FMT(wav_fmt) => fmt = Ok(wav_fmt),
+                chunk::WavChunks::FACT => (),
+                chunk::WavChunks::DATA(d_len) => {
+                    match &mut fmt {
+                        Ok(fmt) => sample_len = (d_len / (fmt.bits_per_sample as u32 / 8)) as usize,
+                        Err(_) => return Err(Error::WrongFmt),
+                    }
+
+                    break;
+                },
+            }
+        } 
+        
+        Ok(LgWav {
+            fmt: fmt?,
+            sample_len,
+            reader,
         })
     }
     
-    pub fn decode_f64(
-        fmt: WavFmtChunk,
-        fact: Option<WavFactChunk<T>>,
-        data: WavDataChunk,
-    ) -> Result<LgWav<T, f64>, Box<dyn std::error::Error>>
-    {
-        LgWav::<T, f64>::decode_with(fmt, fact, data, |bytes, fmt, _| decode_bytes(bytes, fmt.fmt_tag, fmt.bits_per_sample).ok())
+    /// Length of the samples.
+    pub const fn len(&self) -> usize {
+        self.sample_len
     }
     
-    pub fn encode_with<F, E>(&self, func: F) -> Result<Vec<u8>, Box<dyn std::error::Error>>
-    where 
-        F: Fn(&D, &WavFmtChunk, &Option<WavFactChunk<T>>) -> Result<Vec<u8>, E>,
-        E: std::error::Error + 'static,
-    {
-        let mut result = Vec::default();
+    /// Duration of the audio in seconds.
+    pub const fn duration(&self) -> usize {
+        self.sample_len / self.fmt.channels as usize / self.fmt.sample_rate as usize
+    }
 
-        for sample in &self.samples {
-            result.append(&mut func(sample, &self.fmt, &self.fact)?)
+    /// Iterator over the samples.
+    /// Once you iterate over the elements, calling this again will not be on the start of 
+    /// the samples, so it is recommended that you store the samples in a container if 
+    /// you need to reuse them.
+    pub fn samples<S: Sample<io::BufReader<File>>>(&mut self) -> LgWavSampleIter<io::BufReader<File>, S> {
+        LgWavSampleIter::new(&mut self.reader, &self.fmt)
+    }
+}
+
+pub struct LgWavSampleIter<'si, R: io::Read, S: Sample<R>> {
+    fmt: &'si WavFmt,
+    reader: &'si mut LgWavReader<R>,
+    _phantom: PhantomData<S>,
+}
+impl<'si, R: io::Read, S: Sample<R>> LgWavSampleIter<'si, R, S> {
+    fn new(reader: &'si mut LgWavReader<R>, fmt: &'si WavFmt) -> Self {
+        Self {
+            fmt,
+            reader,
+            _phantom: PhantomData,
         }
-        
-        Ok(result)
-    }
-
-    pub fn to_bytes_with<F, E>(self, func: F) -> Result<Vec<u8>, Box<dyn std::error::Error>>
-    where
-        F: Fn(&D, &WavFmtChunk, &Option<WavFactChunk<T>>) -> Result<Vec<u8>, E>,
-        E: std::error::Error + 'static,
-    {
-        let data_bytes = self.encode_with(func)?;
-        let data = WavDataChunk {
-            ck_size: data_bytes.len(),
-            data: data_bytes
-        };
-        
-        Ok(to_bytes(self.fmt, self.fact, data))
     }
 }
-impl<T: WavFactExt> LgWav<T, f64> {
-    pub fn to_bytes_f64(self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(self.to_bytes_with(encode_data)?)
-    }
+impl<'si, R: io::Read, S: Sample<R>> Iterator for LgWavSampleIter<'si, R, S> {
+    type Item = S;
 
-    pub fn encode_data_f64(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(self.encode_with(encode_data)?)
+    fn next(&mut self) -> Option<Self::Item> {
+        S::read(self.reader, self.fmt).ok()
     }
 }
 
-pub fn to_bytes<T: WavFactExt>(fmt: WavFmtChunk, fact: Option<WavFactChunk<T>>, data: WavDataChunk) -> Vec<u8> {
-    let mut chunks = Vec::default(); 
+pub trait Sample<R: io::Read>: Sized {
+    fn read(reader: &mut LgWavReader<R>, fmt: &WavFmt) -> Result<Self>;
+}
 
-    // Fmt chunk
-    chunks.extend(b"fmt ");
-    chunks.extend(fmt.to_bytes());
+impl<R: io::Read> Sample<R> for i32 {
+    fn read(reader: &mut LgWavReader<R>, fmt: &WavFmt) -> Result<Self> {
+        Ok(match (fmt.format, fmt.bits_per_sample) {
+            (WavFmtTag::WAVE_FORMAT_PCM, 8) => reader.read_le_i8()? as i32,
+            (WavFmtTag::WAVE_FORMAT_PCM, 16) => reader.read_le_i16()? as i32,
+            (WavFmtTag::WAVE_FORMAT_PCM, 24) => reader.read_le_i32_24()?,
+            (WavFmtTag::WAVE_FORMAT_PCM, 32) => reader.read_le_i32()?,
+            (WavFmtTag::WAVE_FORMAT_IEEE_FLOAT, 32) => reader.read_le_f32()? as i32,
+            (WavFmtTag::WAVE_FORMAT_IEEE_FLOAT, 64) => reader.read_le_f64()? as i32,
 
-    // Fact chunk
-    if let Some(fact) = fact {
-        chunks.extend(b"fact");
-        chunks.extend(fact.to_bytes());
+            _ => return Err(Error::Conversion(std::format!("{:?} with {} bits per sample is not supported for i32!", fmt.format, fmt.bits_per_sample))),
+        })
     }
-
-    // Data chunk
-    chunks.extend(b"data");
-    chunks.extend(data.to_bytes());
-    
-    // Header
-    let mut result = Vec::with_capacity(chunks.len() + 12);
-    result.extend(b"RIFF");
-    result.extend((chunks.len() as u32 + 4).to_le_bytes());
-    result.extend(b"WAVE");
-    result.extend(std::mem::take(&mut chunks));
-    
-    result
-}
-
-fn num_samples(data_len: usize, fmt: &WavFmtChunk) -> usize {
-    data_len
-    / (fmt.bits_per_sample / 8) as usize
-    / fmt.number_channels as usize
-}
-
-#[inline]
-pub fn decode_bytes(bytes: &[u8], fmt_type: WavFormatType, bits_per_sample: u16) -> Result<f64, Box<dyn std::error::Error>> {
-    Ok(match fmt_type {
-        WavFormatType::WAVE_FORMAT_PCM => match bits_per_sample {
-            16 => i16::from_le_bytes([bytes[0], bytes[1]]) as f64,
-            24 => decode_24bit_i32(bytes) as f64,
-            32 => i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64,
-            bps if bps <= 8 => bytes[0] as f64,
-
-            _ => return Err(std::format!("Not supported: {fmt_type} with {bits_per_sample} bits_per_sample!").into())
-        },
-        WavFormatType::WAVE_FORMAT_IEEE_FLOAT => match bits_per_sample {
-            32 => f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as f64,
-            64 => f64::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]),
-
-            _ => return Err(std::format!("Not supported: {fmt_type} with {bits_per_sample} bits_per_sample!").into())
-        },
-        WavFormatType::WAVE_FORMAT_ALAW => ALAW_DECOMPRESS_TABLE[bytes[0] as usize] as f64,
-        WavFormatType::WAVE_FORMAT_MULAW => MULAW_DECOMPRESS_TABLE[bytes[0] as usize] as f64,
-        WavFormatType::WAVE_FORMAT_EXTENSIBLE => return Err(std::format!("Not supported: {fmt_type} with default decode function!").into()),
-    })
-}
-
-#[inline]
-pub fn encode_data<T: WavFactExt>(data: &f64, fmt: &WavFmtChunk, _: &Option<WavFactChunk<T>>) -> Result<Vec<u8>, LgAudioParseErr> {
-    let data_i32 = *data as i32;
-    let fmt_type = fmt.fmt_tag;
-    let bits_per_sample = fmt.bits_per_sample;
-
-    Ok(match fmt_type {
-        WavFormatType::WAVE_FORMAT_PCM => match bits_per_sample {
-            16 => (data_i32 as i16).to_le_bytes().to_vec(),
-            24 => encode_24bit_i32(data_i32).to_vec(),
-            32 => data_i32.to_le_bytes().to_vec(),
-
-            bps if bps <= 8 => vec![data_i32 as u8],
-
-            _ => return Err(std::format!("Not supported: {fmt_type} with {bits_per_sample} bits_per_sample!").into())
-        },
-        WavFormatType::WAVE_FORMAT_IEEE_FLOAT => match bits_per_sample {
-            32 => (*data as f32).to_le_bytes().to_vec(),
-            64 => data.to_le_bytes().to_vec(),
-
-            _ => return Err(std::format!("Not supported: {fmt_type} with {bits_per_sample} bits_per_sample!").into())
-        },
-        WavFormatType::WAVE_FORMAT_ALAW => vec![encode_alaw(*data as i16)],
-        WavFormatType::WAVE_FORMAT_MULAW => vec![encode_mulaw(*data as i16)],
-        WavFormatType::WAVE_FORMAT_EXTENSIBLE => return Err(std::format!("Not supported: {fmt_type} with default encode function!").into()),
-    })
-}
-
-#[inline]
-const fn decode_24bit_i32(bytes: &[u8]) -> i32 {
-    i32::from_le_bytes([bytes[0], bytes[1], bytes[2], if bytes[2] & 0x80 != 0 { 0xFF } else { 0x00 }])
-}
-
-#[inline]
-const fn encode_24bit_i32(data: i32) -> [u8; 3] {
-    let bytes = data.to_le_bytes();
-
-    [bytes[0], bytes[1], bytes[2]]
 }

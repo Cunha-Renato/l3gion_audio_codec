@@ -1,21 +1,12 @@
-use lg_audiof::{wav::{decode_bytes, parser::LgWavRaw}, LgAudioFileParser};
+use lg_audiof::{tools::*, wav::LgWav};
 
 fn main() {
-    let file_names = [
-        "samples/m1f1_alaw.wav", 
-        "samples/m1f1_mulaw.wav", 
-        "samples/m1f1_alaw_we.wav", 
-        "samples/soldiers_eyes.wav", 
-        "samples/soldiers_eyes_pcm_24.wav", 
-        "samples/sine_pcm.wav"
-    ];
+    let mut wav = LgWav::decode("samples/sine_pcm.wav").unwrap();
+    println!("{:#?}", wav.fmt);
 
-    let mut dec = LgWavRaw::default()
-        .parse(file_names[4])
-        .unwrap()
-        .decode_with(|bytes, fmt, _| {
-            let sample = decode_bytes(bytes, fmt.fmt_tag, fmt.bits_per_sample).ok()?;
-            Some(sample as i16)
-        })
-        .unwrap();
+    let s: Vec<i32> = wav.samples().collect();
+    println!("{}", wav.duration());
+        
+    let a = hound::WavReader::open("samples/sine_pcm.wav").unwrap();
+    println!("{}", a.duration());
 }
