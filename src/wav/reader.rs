@@ -4,8 +4,7 @@ use crate::reader::{LgFileReader, LgReader};
 use crate::wav::WavFmtTag;
 use crate::Result;
 
-use super::chunk::{WavChunks, WavFmt};
-use super::Sample;
+use super::{WavChunks, WavFmt};
 
 pub struct LgWavReader<R: io::Read> {
     reader: LgFileReader<R>,
@@ -13,109 +12,76 @@ pub struct LgWavReader<R: io::Read> {
     cursor: usize,
 }
 impl<R: io::Read> LgReader for LgWavReader<R> {
+    fn read_into(&mut self, buffer: &mut [u8]) -> Result<()> {
+        self.move_cursor(buffer.len())?;
+
+        self.reader.read_into(buffer)
+    }
+
     fn read_next_bytes<const N: usize>(&mut self) -> Result<[u8; N]> {
         self.move_cursor(N)?;
 
-        let mut buf = [0; N];
-        self.reader.read_exact(&mut buf)?;
-
-        Ok(buf)
+        self.reader.read_next_bytes()
     }
 
     fn skip_next_bytes<const N: usize>(&mut self) -> Result<()> {
         self.move_cursor(N)?;
 
-        self.reader.read_exact(&mut [0; N])?;
-        
-        Ok(())
+        self.reader.skip_next_bytes::<N>()
     }
 
     fn read_le_u8(&mut self) -> Result<u8> {
         self.move_cursor(1)?;
 
-        let mut buf = [0];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(buf[0])
+        self.reader.read_le_u8()
     }
 
     fn read_le_u16(&mut self) -> Result<u16> {
         self.move_cursor(2)?;
 
-        let mut buf = [0; 2];
-        self.reader.read_exact(&mut buf)?;
-        
-        Ok(u16::from_le_bytes(buf))
+        self.reader.read_le_u16()
     }
 
     fn read_le_u32(&mut self) -> Result<u32> {
         self.move_cursor(4)?;
-
-        let mut buf = [0; 4];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(u32::from_le_bytes(buf))
+        
+        self.reader.read_le_u32()
     }
 
     fn read_le_i8(&mut self) -> Result<i8> {
         self.move_cursor(1)?;
 
-        let mut buf = [0];
-        self.reader.read_exact(&mut buf)?;
-        
-        Ok(crate::tools::u8_to_i8(buf[0]))
+        self.reader.read_le_i8()
     }
 
     fn read_le_i16(&mut self) -> Result<i16> {
         self.move_cursor(2)?;
 
-        let mut buf = [0; 2];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(i16::from_le_bytes(buf))
+        self.reader.read_le_i16()
     }
 
     fn read_le_i32(&mut self) -> Result<i32> {
         self.move_cursor(4)?;
 
-        let mut buf = [0; 4];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(i32::from_le_bytes(buf))
+        self.reader.read_le_i32()
     }
 
     fn read_le_i32_24(&mut self) -> Result<i32> {
         self.move_cursor(3)?;
-
-        let mut buf = [0; 3];
-        self.reader.read_exact(&mut buf)?;
-
-        let i32_bytes = [
-            buf[0],
-            buf[1],
-            buf[2],
-            if buf[2] & 0x80 != 0 { 0xFF } else { 0x00 }
-        ];
-    
-        Ok(i32::from_le_bytes(i32_bytes))
+        
+        self.reader.read_le_i32_24()
     }
 
     fn read_le_f32(&mut self) -> Result<f32> {
         self.move_cursor(4)?;
 
-        let mut buf = [0; 4];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(f32::from_le_bytes(buf))
+        self.reader.read_le_f32()
     }
 
     fn read_le_f64(&mut self) -> Result<f64> {
         self.move_cursor(8)?;
-
-        let mut buf = [0; 8];
-        self.reader.read_exact(&mut buf)?;
-    
-        Ok(f64::from_le_bytes(buf))
+        
+        self.reader.read_le_f64()
     }
 }
 impl<R: io::Read> LgWavReader<R> {
@@ -144,6 +110,10 @@ impl<R: io::Read> LgWavReader<R> {
     pub(super) fn read_next_chunk(&mut self) -> Result<WavChunks> {
         Ok(match &self.read_next_bytes()? {
             b"fmt " => WavChunks::FMT(self.read_fmt_chunk()?),
+            b"fact" => {
+                self.read_fact_chunk()?;
+                WavChunks::FACT
+            },
             b"data" => WavChunks::DATA(self.read_le_u32()?),
 
             _ => return Err(Error::WrongFmtInfo("Currently do not support more chunks other than fmt and data!".to_string())),
@@ -175,13 +145,13 @@ impl<R: io::Read> LgWavReader<R> {
         match (fmt_tag, ck_size) {
             (WavFmtTag::WAVE_FORMAT_PCM, ck_size) => self.read_check_fmt_pcm(ck_size, &fmt)?,
             (WavFmtTag::WAVE_FORMAT_IEEE_FLOAT, ck_size) => self.read_check_fmt_ieee_float(ck_size, &fmt)?,
+            (WavFmtTag::WAVE_FORMAT_ALAW, ck_size) => self.read_check_fmt_alaw(ck_size, &fmt)?,
+            (WavFmtTag::WAVE_FORMAT_MULAW, ck_size) => self.read_check_fmt_mulaw(ck_size, &fmt)?,
             (WavFmtTag::WAVE_FORMAT_EXTENSIBLE, ck_size) => self.read_check_fmt_extensible(ck_size, &mut fmt)?,
-            // TODO: ALAW.
-            // TODO: MULAW.
 
             _ => return Err(Error::WrongFmt),
         };
-        //
+        
         // 4 bytes for the ck_id.
         // 4 bytes for the ck_size.
         let bytes_to_skip = (ck_size + 8) - self.cursor;
@@ -211,7 +181,7 @@ impl<R: io::Read> LgWavReader<R> {
         Ok(())
     }
 
-    fn read_check_fmt_ieee_float(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+    fn read_check_fmt_ieee_float(&mut self, ck_size :usize, _: &WavFmt) -> Result<()> {
         // If ck_size is 16, that means that all the fmt was read.
         if ck_size == 16 { return Ok(()); }
         if ck_size != 18 { 
@@ -226,6 +196,14 @@ impl<R: io::Read> LgWavReader<R> {
         Ok(())
     }
     
+    fn read_check_fmt_alaw(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+        todo!()
+    }
+
+    fn read_check_fmt_mulaw(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+        todo!()
+    }
+
     fn read_check_fmt_extensible(&mut self, ck_size :usize, fmt: &mut WavFmt) -> Result<()> {
         if ck_size < 40 {
             return Err(Error::WrongFmtInfo("WAVE_FORMAT_EXTENSIBLE must have ck_size of 40!".to_string()));
@@ -240,7 +218,7 @@ impl<R: io::Read> LgWavReader<R> {
         // Skip channel_mask.
         self.skip_next_bytes::<4>()?;
         // GUID
-        let sub_format: [u8; 16] = self.read_next_bytes()?;
+        let _sub_format: [u8; 16] = self.read_next_bytes()?;
 
         // TODO: Support different GUIDs.
 
@@ -248,6 +226,15 @@ impl<R: io::Read> LgWavReader<R> {
             fmt.bits_per_sample = valid_bits_per_sample;
         }
 
+        Ok(())
+    }
+
+    fn read_fact_chunk(&mut self) -> Result<()> {
+        let ck_size = self.read_le_u32()? as usize;
+        let mut _skip_bytes = vec![0u8; ck_size];
+        
+        self.read_into(&mut _skip_bytes)?;
+        
         Ok(())
     }
 }
@@ -260,10 +247,6 @@ impl<R: io::Read> LgWavReader<R> {
         self.cursor += n;
 
         Ok(())
-    }
-    
-    fn check_cusor(&self) -> bool {
-        self.cursor > self.max_size + 1
     }
 }
 

@@ -1,7 +1,9 @@
 use std::{io, ops::{Deref, DerefMut}};
 use crate::{tools::u8_to_i8, Result};
 
-pub trait LgReader: {
+pub trait LgReader {
+    fn read_into(&mut self, buffer: &mut [u8]) -> Result<()>;
+
     fn read_next_bytes<const N: usize>(&mut self) -> Result<[u8; N]>;
 
     fn skip_next_bytes<const N: usize>(&mut self) -> Result<()>;
@@ -44,6 +46,12 @@ impl<R: io::Read> io::Read for LgFileReader<R> {
     }
 }
 impl<R: io::Read> LgReader for LgFileReader<R> {
+    fn read_into(&mut self, buffer: &mut [u8]) -> Result<()> {
+        self.read_exact(buffer)?;
+
+        Ok(())
+    }
+
     fn read_next_bytes<const N: usize>(&mut self) -> Result<[u8; N]> {
         let mut buf = [0; N];
         self.read_exact(&mut buf)?;
