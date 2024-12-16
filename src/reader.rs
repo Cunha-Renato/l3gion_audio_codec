@@ -26,26 +26,7 @@ pub trait LgReader {
     
     fn read_le_f64(&mut self) -> Result<f64>;
 }
-
-pub struct LgFileReader<R: io::Read>(pub(crate) R);
-impl<R: io::Read> Deref for LgFileReader<R> {
-    type Target = R;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<R: io::Read> DerefMut for LgFileReader<R> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl<R: io::Read> io::Read for LgFileReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-impl<R: io::Read> LgReader for LgFileReader<R> {
+impl<R: io::Read> LgReader for R {
     fn read_into(&mut self, buffer: &mut [u8]) -> Result<()> {
         self.read_exact(buffer)?;
 
@@ -115,7 +96,7 @@ impl<R: io::Read> LgReader for LgFileReader<R> {
             buf[0],
             buf[1],
             buf[2],
-            if buf[2] & 0x80 != 0 { 0xFF } else { 0x00 }
+            if buf[2] & 0x80 != 0 { 0xFF } else { 0x00 } // Sign extend the top byte
         ];
         
         Ok(i32::from_le_bytes(i32_bytes))

@@ -1,5 +1,5 @@
-use std::{fmt, fs, io::{self, BufReader}, path};
-use crate::{decoder::LgDecoder, error::Error, info::LgAudioInfo, reader::LgFileReader, Result, SampleType};
+use std::{fmt, fs, io, path};
+use crate::{decoder::LgDecoder, error::Error, info::LgAudioInfo, Result, SampleType};
 use super::{reader::LgWavReader, LgWavSampleIter, WavChunks, WavFmt};
 
 pub struct LgWavDecoder<R: io::Read> {
@@ -16,11 +16,11 @@ impl<R: io::Read> fmt::Debug for LgWavDecoder<R> {
             .finish()
     }
 }
-impl LgWavDecoder<BufReader<fs::File>> {
+impl LgWavDecoder<io::BufReader<fs::File>> {
     pub fn new(path: impl AsRef<path::Path>) -> Result<Self> {
         let file = fs::File::open(path)?;
         // Already checks the header.
-        let mut reader = LgWavReader::new(LgFileReader(io::BufReader::new(file)))?;
+        let mut reader = LgWavReader::new(io::BufReader::new(file))?;
         
         // Just in case the fmt chunk is not present.
         let mut fmt = Err(Error::WrongFmt);
@@ -47,6 +47,10 @@ impl LgWavDecoder<BufReader<fs::File>> {
             sample_len,
             reader,
         })
+    }
+    
+    pub fn format(&self) -> WavFmt {
+        self.fmt
     }
 }
 impl<R: io::Read> LgDecoder for LgWavDecoder<R> {

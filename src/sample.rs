@@ -28,17 +28,14 @@ impl Sample for i32 {
     
     fn write(self, writer: &mut impl LgWriter, sample_type: SampleType, bits_per_sample: u16) -> Result<()> {
         match (sample_type, bits_per_sample) {
-            (SampleType::INT, 8) => writer.write_le_i8(self as i8)?,
-            (SampleType::INT, 16) => writer.write_le_i16(self as i16)?,
-            (SampleType::INT, 24) => writer.write_le_i32_24(self)?,
-            (SampleType::INT, 32) => writer.write_le_i32(self)?,
-            (SampleType::FLOAT, 32) => writer.write_le_f32(self as f32)?,
-            (SampleType::FLOAT, 64) => writer.write_le_f64(self as f64)?,
+            (SampleType::INT, 8) => writer.write_le_i8(self as i8),
+            (SampleType::INT, 16) => writer.write_le_i16(self as i16),
+            (SampleType::INT, 24) => writer.write_le_i32_24(self),
+            (SampleType::INT, 32) => writer.write_le_i32(self),
+            (SampleType::FLOAT, 32) => writer.write_le_f32(self as f32),
+            (SampleType::FLOAT, 64) => writer.write_le_f64(self as f64),
 
             _ => return Err(Error::Conversion(std::format!("{:?} with {} bits per sample is not supported for i32!", sample_type, bits_per_sample))),           
         }
-        
-        
-        Ok(())
     }
 }

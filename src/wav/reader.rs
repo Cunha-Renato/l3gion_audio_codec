@@ -1,13 +1,13 @@
 use std::{io, usize};
 use crate::error::Error;
-use crate::reader::{LgFileReader, LgReader};
+use crate::reader::LgReader;
 use crate::wav::WavFmtTag;
 use crate::Result;
 
 use super::{WavChunks, WavFmt};
 
 pub struct LgWavReader<R: io::Read> {
-    reader: LgFileReader<R>,
+    pub(super) reader: R,
     max_size: usize,
     cursor: usize,
 }
@@ -85,11 +85,11 @@ impl<R: io::Read> LgReader for LgWavReader<R> {
     }
 }
 impl<R: io::Read> LgWavReader<R> {
-    pub(super) fn new(reader: LgFileReader<R>) -> Result<Self> {
+    pub(super) fn new(reader: R) -> Result<Self> {
         Self::read_header(reader)    
     }
 
-    pub(super) fn read_header(mut reader: LgFileReader<R>) -> Result<Self> {
+    pub(super) fn read_header(mut reader: R) -> Result<Self> {
         if b"RIFF" != &reader.read_next_bytes()? {
             return Err(Error::WrongHeader);
         }
@@ -114,7 +114,15 @@ impl<R: io::Read> LgWavReader<R> {
                 self.read_fact_chunk()?;
                 WavChunks::FACT
             },
-            b"data" => WavChunks::DATA(self.read_le_u32()?),
+            b"data" => {
+                // Some files will have metadata in them after the data chunk.
+                // We don't want that to be marked as a sample, so we make sure we only read the rest of the data.
+                let data_ck_size = self.read_le_u32()?;
+                self.max_size = data_ck_size as usize;
+                self.cursor = 0;
+
+                WavChunks::DATA(data_ck_size)
+            },
 
             _ => return Err(Error::WrongFmtInfo("Currently do not support more chunks other than fmt and data!".to_string())),
         })

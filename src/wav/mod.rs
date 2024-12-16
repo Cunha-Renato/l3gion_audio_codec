@@ -1,12 +1,15 @@
 use std::marker::PhantomData;
 use std::{fmt::Debug, io};
-use reader::LgWavReader;
+use crate::reader::LgReader;
 use crate::{Sample, SampleType};
 
 pub mod decoder;
+pub mod encoder;
 pub mod reader;
+pub mod writer;
 
 pub use decoder::LgWavDecoder;
+pub use encoder::LgWavEncoder;
 
 // ------------------------- WAVE FORMATS --------------------------
 const WAVE_FORMAT_PCM: u16 =        0x0001;
@@ -71,17 +74,17 @@ pub struct WavFmt {
 // ------------------------- SAMPLE --------------------------
 
 pub struct LgWavSampleIter<'si, R, S: Sample>
-where R: io::Read,
+where R: LgReader,
 {
     bits_per_sample: u16,
     sample_type: SampleType,
-    reader: &'si mut LgWavReader<R>,
+    reader: &'si mut R,
     _phantom: PhantomData<S>,
 }
 impl<'si, R, S: Sample> LgWavSampleIter<'si, R, S> 
-where R: io::Read,
+where R: LgReader,
 {
-    fn new(reader: &'si mut LgWavReader<R>, sample_type: SampleType, bits_per_sample: u16) -> Self {
+    fn new(reader: &'si mut R, sample_type: SampleType, bits_per_sample: u16) -> Self {
         Self {
             sample_type,
             bits_per_sample,
@@ -91,7 +94,7 @@ where R: io::Read,
     }
 }
 impl<'si, R, S: Sample> Iterator for LgWavSampleIter<'si, R, S>
-where R: io::Read,
+where R: LgReader,
 {
     type Item = S;
 
