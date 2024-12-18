@@ -13,17 +13,33 @@ const SAMPLES: [&str; 5] = [
     "m1f1_float32"
 ];
 
+fn save_with_houd(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut reader = hound::WavReader::open(path)?;
+    let samples: Vec<f32> = reader.samples().map(|s| s.unwrap()).collect();
+    
+    let mut writer = hound::WavWriter::create("test_hound.wav", reader.spec())?;
+    
+    samples.iter().for_each(|s| writer.write_sample(*s).unwrap());
+
+    Ok(())
+}
+
+fn save_with_l3gion(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut decoder = wav::LgWavDecoder::new(path)?;
+    let samples: Vec<f32> = decoder.samples().collect();
+    
+    let mut encoder = wav::LgWavEncoder::new("test_l3gion.wav", decoder.format())?;
+    
+    samples.iter().for_each(|s| encoder.encode_sample(*s).unwrap());
+    
+    Ok(())
+}
+
 fn main() -> Result<(), error::Error> {
     // for sample in SAMPLES {
-        let sample = std::format!("samples/{}.wav", SAMPLES[2]);
-
-        let mut wav = wav::LgWavDecoder::new(sample)?;
-        println!("{:#?}", wav);
-        let samples: Vec<i32> = wav.samples().collect();
-        
-        let mut wav_enc = wav::LgWavEncoder::new("test.wav", wav.format())?;
-        
-        samples.iter().for_each(|s| wav_enc.encode_sample(*s).unwrap());
+        let sample = std::format!("samples/{}.wav", SAMPLES[4]);
+        // save_with_houd(&sample).unwrap();
+        save_with_l3gion(&sample).unwrap();
     // }
     
     Ok(())
