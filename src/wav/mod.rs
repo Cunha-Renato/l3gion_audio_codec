@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::fmt::Debug;
 use crate::reader::LgReader;
-use crate::{LgAudioInfo, Sample, SampleType};
+use crate::{AudioInfo, Sample, SampleType};
 
 pub mod decoder;
 pub mod encoder;
@@ -56,21 +56,14 @@ impl Into<u16> for WavFmtTag {
 
 // ------------------------- CHUNKS --------------------------
 pub(super) enum WavChunks {
-    FMT(WavFmt),
+    FMT(AudioInfo),
     /// Not used.
     FACT,
     /// Chunk size
     DATA(u32),
 }
 
-#[derive(Default, Debug, Clone, Copy)]
-pub struct WavFmt {
-    pub format: WavFmtTag,
-    pub channels: u16,
-    pub sample_rate: u32,
-    pub bits_per_sample: u16,
-}
-impl LgAudioInfo for WavFmt {}
+
 
 // ------------------------- SAMPLE --------------------------
 

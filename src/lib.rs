@@ -11,4 +11,11 @@ pub mod sample;
 pub use sample::*;
 
 pub type Result<T> = result::Result<T, error::Error>;
-pub trait LgAudioInfo {}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct AudioInfo {
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub bits_per_sample: u16,
+    pub sample_type: Option<SampleType>,
+}

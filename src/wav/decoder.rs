@@ -1,9 +1,9 @@
 use std::{fmt, fs, io, path};
-use crate::{decoder::LgDecoder, error::Error, Result, SampleType};
-use super::{reader::LgWavReader, LgWavSampleIter, WavChunks, WavFmt};
+use crate::{decoder::LgDecoder, error::Error, AudioInfo, Result, SampleType};
+use super::{reader::LgWavReader, LgWavSampleIter, WavChunks};
 
 pub struct LgWavDecoder<R: io::Read> {
-    fmt: WavFmt,
+    info: AudioInfo,
     sample_len: usize,
 
     reader: LgWavReader<R>,
@@ -11,7 +11,7 @@ pub struct LgWavDecoder<R: io::Read> {
 impl<R: io::Read> fmt::Debug for LgWavDecoder<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LgWavDecoder")
-            .field("fmt", &self.fmt)
+            .field("info", &self.info)
             .field("sample_len", &self.sample_len)
             .finish()
     }
@@ -23,17 +23,17 @@ impl LgWavDecoder<io::BufReader<fs::File>> {
         let mut reader = LgWavReader::new(io::BufReader::new(file))?;
         
         // Just in case the fmt chunk is not present.
-        let mut fmt = Err(Error::WrongFmt);
+        let mut info = Err(Error::WrongFmt);
         let sample_len;
 
         loop { 
             let chunk = reader.read_next_chunk();
             match chunk? {
-                WavChunks::FMT(wav_fmt) => fmt = Ok(wav_fmt),
+                WavChunks::FMT(wav_info) => info = Ok(wav_info),
                 WavChunks::FACT => (),
                 WavChunks::DATA(d_len) => {
-                    match &mut fmt {
-                        Ok(fmt) => sample_len = (d_len / (fmt.bits_per_sample as u32 / 8)) as usize,
+                    match &mut info {
+                        Ok(info) => sample_len = (d_len / (info.bits_per_sample as u32 / 8)) as usize,
                         Err(_) => return Err(Error::WrongFmt),
                     }
 
@@ -43,36 +43,34 @@ impl LgWavDecoder<io::BufReader<fs::File>> {
         } 
         
         Ok(Self {
-            fmt: fmt?,
+            info: info?,
             sample_len,
             reader,
         })
     }
-    
-    pub fn format(&self) -> WavFmt {
-        self.fmt
-    }
 }
 impl<R: io::Read> LgDecoder for LgWavDecoder<R> {
-    type Info = WavFmt;
-
-    fn info(&self) -> Self::Info {
-        self.fmt
+    #[inline(always)]
+    fn info(&self) -> AudioInfo {
+        self.info
     }
 
+    #[inline(always)]
     fn samples<S: super::Sample>(&mut self) -> impl Iterator<Item = S> {
-        let sample_type = match self.fmt.format {
-            super::WavFmtTag::WAVE_FORMAT_IEEE_FLOAT => SampleType::FLOAT,
-            _ => SampleType::INT
+        let sample_type = match self.info.sample_type {
+            Some(st) => st,
+            None => SampleType::INT,
         };
 
-        LgWavSampleIter::new(&mut self.reader, sample_type, self.fmt.bits_per_sample)
+        LgWavSampleIter::new(&mut self.reader, sample_type, self.info.bits_per_sample)
     }
 
+    #[inline(always)]
     fn duration(&self) -> usize {
-        self.sample_len / self.fmt.channels as usize / self.fmt.sample_rate as usize
+        self.sample_len / self.info.channels as usize / self.info.sample_rate as usize
     }
 
+    #[inline(always)]
     fn len(&self) -> usize {
         self.sample_len
     }

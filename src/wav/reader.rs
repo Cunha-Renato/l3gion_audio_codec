@@ -2,9 +2,11 @@ use std::{io, usize};
 use crate::error::Error;
 use crate::reader::LgReader;
 use crate::wav::WavFmtTag;
+use crate::AudioInfo;
 use crate::Result;
+use crate::SampleType;
 
-use super::{WavChunks, WavFmt};
+use super::WavChunks;
 
 pub struct LgWavReader<R: io::Read> {
     pub(super) reader: R,
@@ -128,7 +130,7 @@ impl<R: io::Read> LgWavReader<R> {
         })
     }
     
-    pub(super) fn read_fmt_chunk(&mut self) -> Result<WavFmt> {
+    pub(super) fn read_fmt_chunk(&mut self) -> Result<AudioInfo> {
         let ck_size = self.read_le_u32()? as usize;
 
         if ck_size > 40 || ck_size < 16 { return Err(Error::WrongFmt); }
@@ -140,22 +142,29 @@ impl<R: io::Read> LgWavReader<R> {
         let _block_align = self.read_le_u16()?;
         let bits_per_sample = self.read_le_u16()?;
 
-        let mut fmt = WavFmt {
-            format: fmt_tag,
+        let mut info = AudioInfo {
             channels,
             sample_rate: samples_per_sec,
             bits_per_sample,
+            sample_type: Some(match fmt_tag {
+                WavFmtTag::WAVE_FORMAT_PCM 
+                | WavFmtTag::WAVE_FORMAT_ALAW 
+                | WavFmtTag::WAVE_FORMAT_MULAW 
+                | WavFmtTag::WAVE_FORMAT_EXTENSIBLE
+                | WavFmtTag::OTHER(_) => SampleType::INT,
+                WavFmtTag::WAVE_FORMAT_IEEE_FLOAT => SampleType::FLOAT
+            })
         };
 
         // Time to check if the info is ok.
-        check_fmt(&fmt)?;
+        check_fmt(&info)?;
 
         match (fmt_tag, ck_size) {
-            (WavFmtTag::WAVE_FORMAT_PCM, ck_size) => self.read_check_fmt_pcm(ck_size, &fmt)?,
-            (WavFmtTag::WAVE_FORMAT_IEEE_FLOAT, ck_size) => self.read_check_fmt_ieee_float(ck_size, &fmt)?,
-            (WavFmtTag::WAVE_FORMAT_ALAW, ck_size) => self.read_check_fmt_alaw(ck_size, &fmt)?,
-            (WavFmtTag::WAVE_FORMAT_MULAW, ck_size) => self.read_check_fmt_mulaw(ck_size, &fmt)?,
-            (WavFmtTag::WAVE_FORMAT_EXTENSIBLE, ck_size) => self.read_check_fmt_extensible(ck_size, &mut fmt)?,
+            (WavFmtTag::WAVE_FORMAT_PCM, ck_size) => self.read_check_fmt_pcm(ck_size, &info)?,
+            (WavFmtTag::WAVE_FORMAT_IEEE_FLOAT, ck_size) => self.read_check_fmt_ieee_float(ck_size, &info)?,
+            (WavFmtTag::WAVE_FORMAT_ALAW, ck_size) => self.read_check_fmt_alaw(ck_size, &info)?,
+            (WavFmtTag::WAVE_FORMAT_MULAW, ck_size) => self.read_check_fmt_mulaw(ck_size, &info)?,
+            (WavFmtTag::WAVE_FORMAT_EXTENSIBLE, ck_size) => self.read_check_fmt_extensible(ck_size, &mut info)?,
 
             _ => return Err(Error::WrongFmt),
         };
@@ -169,15 +178,14 @@ impl<R: io::Read> LgWavReader<R> {
         // 4 bytes for the ck_size.
         assert_eq!(self.cursor, 8 + ck_size);
 
-        Ok(fmt)
+        Ok(info)
     }
     
-    fn read_check_fmt_pcm(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+    fn read_check_fmt_pcm(&mut self, ck_size :usize, fmt: &AudioInfo) -> Result<()> {
         // If ck_size is 16, that means that all the fmt was read.
         if ck_size == 16 { return Ok(()); }
 
         // If this executes then it means that is a WAVEFORMATEX.
-        
         // Dealing with cb_size.
         self.skip_next_bytes::<2>()?;
         
@@ -189,7 +197,7 @@ impl<R: io::Read> LgWavReader<R> {
         Ok(())
     }
 
-    fn read_check_fmt_ieee_float(&mut self, ck_size :usize, _: &WavFmt) -> Result<()> {
+    fn read_check_fmt_ieee_float(&mut self, ck_size :usize, _: &AudioInfo) -> Result<()> {
         // If ck_size is 16, that means that all the fmt was read.
         if ck_size == 16 { return Ok(()); }
         if ck_size != 18 { 
@@ -204,15 +212,17 @@ impl<R: io::Read> LgWavReader<R> {
         Ok(())
     }
     
-    fn read_check_fmt_alaw(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+    #[allow(unused)]
+    fn read_check_fmt_alaw(&mut self, ck_size :usize, fmt: &AudioInfo) -> Result<()> {
         todo!()
     }
 
-    fn read_check_fmt_mulaw(&mut self, ck_size :usize, fmt: &WavFmt) -> Result<()> {
+    #[allow(unused)]
+    fn read_check_fmt_mulaw(&mut self, ck_size :usize, fmt: &AudioInfo) -> Result<()> {
         todo!()
     }
 
-    fn read_check_fmt_extensible(&mut self, ck_size :usize, fmt: &mut WavFmt) -> Result<()> {
+    fn read_check_fmt_extensible(&mut self, ck_size :usize, fmt: &mut AudioInfo) -> Result<()> {
         if ck_size < 40 {
             return Err(Error::WrongFmtInfo("WAVE_FORMAT_EXTENSIBLE must have ck_size of 40!".to_string()));
         }
@@ -258,7 +268,7 @@ impl<R: io::Read> LgWavReader<R> {
     }
 }
 
-fn check_fmt(fmt: &WavFmt) -> Result<()> {
+fn check_fmt(fmt: &AudioInfo) -> Result<()> {
     if fmt.channels == 0 {
         return Err(Error::WrongFmtInfo("fmt.channels must be > 0!".to_string()));
     }

@@ -1,6 +1,6 @@
 use std::io;
-use crate::{error::Error, writer::LgWriter, Result, Sample, SampleType};
-use super::{WavFmt, WAVE_FORMAT_EXTENSIBLE, WAVE_FORMAT_IEEE_FLOAT, WAVE_FORMAT_PCM};
+use crate::{writer::LgWriter, Result, Sample, SampleType, AudioInfo};
+use super::{WAVE_FORMAT_EXTENSIBLE, WAVE_FORMAT_IEEE_FLOAT, WAVE_FORMAT_PCM};
 
 const RIFF_CK_SIZE_POSITION: usize = 4;
 
@@ -15,14 +15,7 @@ impl<W: io::Write + io::Seek> Drop for LgWavWriter<W> {
     }
 }
 impl<W: io::Write + io::Seek> LgWavWriter<W> {
-    pub fn new(writer: W, fmt: &WavFmt) -> Result<Self> {
-        match fmt.format {
-            crate::wav::WavFmtTag::WAVE_FORMAT_PCM
-            | crate::wav::WavFmtTag::WAVE_FORMAT_IEEE_FLOAT => (),
-
-            _ => return Err(Error::WrongFmtInfo("When encoding, only PCM, IEEE_FLOAT and EXTENSIBLE formats are alowed!".to_string())),
-        };
-
+    pub fn new(writer: W, info: &AudioInfo) -> Result<Self> {
         let mut result = Self {
             writer,
             data_bytes_written: 0,
@@ -30,13 +23,14 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         };
         
         result.write_header()?;
-        result.write_fmt_chunk(fmt)?;
+        result.write_fmt_chunk(info)?;
         result.writer.write(b"data")?;
         result.writer.write_le_u32(0)?;
 
         Ok(result)
     }
     
+    #[inline(always)]
     pub fn write_sample<S: Sample>(&mut self, sample: S, sample_type: SampleType, bits_per_sample: u16) -> Result<()> {
         sample.write(&mut self.writer, sample_type, bits_per_sample)?;
         self.data_bytes_written += bits_per_sample as u32 / 8;
@@ -71,26 +65,23 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         Ok(())
     }
 
-    fn write_fmt_chunk(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_fmt_chunk(&mut self, info: &AudioInfo) -> Result<()> {
         self.writer.write(b"fmt ")?;
-        // Writing the standard 16 bytes.
 
-        match fmt.format {
-            super::WavFmtTag::WAVE_FORMAT_PCM => {
-                if fmt.channels > 2 || fmt.bits_per_sample > 16 {
-                    self.write_check_pcm_ex_fmt(fmt)
-                }
-                else {
-                    self.write_check_pcm_fmt(fmt)
-                }
+        match info.sample_type {
+            Some(SampleType::INT) 
+            | None => if info.channels > 2 {
+                self.write_check_pcm_ex_fmt(info)
+            }
+            else {
+                self.write_check_pcm_fmt(info)
             },
-            super::WavFmtTag::WAVE_FORMAT_IEEE_FLOAT => self.write_check_ieee_float_fmt(fmt),
-            
-            _ => panic!("This should not happen!"),
+
+            Some(SampleType::FLOAT) => self.write_check_ieee_float_fmt(info),
         }
     }
     
-    fn write_check_pcm_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_check_pcm_fmt(&mut self, info: &AudioInfo) -> Result<()> {
         // Header + fmt header + fmt data + data tag.
         self.data_ck_size_position = 12 + 8 + 16 + 4;
         
@@ -100,10 +91,10 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         // fmt_tag.
         self.writer.write_le_u16(WAVE_FORMAT_PCM)?;
 
-        self.write_fmt(fmt)
+        self.write_fmt(info)
     }
 
-    fn write_check_pcm_ex_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_check_pcm_ex_fmt(&mut self, info: &AudioInfo) -> Result<()> {
         // Header + fmt header + fmt data + data tag.
         self.data_ck_size_position = 12 + 8 + 40 + 4;
         
@@ -113,16 +104,16 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         // fmt_tag.
         self.writer.write_le_u16(WAVE_FORMAT_EXTENSIBLE)?;
 
-        self.write_fmt(fmt)?;
+        self.write_fmt(info)?;
             
         // cb_size.
         self.writer.write_le_u16(22)?;
         
         // valid_bits_per_sample.
-        self.writer.write_le_u16(fmt.bits_per_sample)?;
+        self.writer.write_le_u16(info.bits_per_sample)?;
         
         // channel_mask.
-        let channels = if fmt.channels > 18 { 18 } else { fmt.channels };
+        let channels = if info.channels > 18 { 18 } else { info.channels };
         self.writer.write_le_u32(channels as u32)?;
         
         // sub_format.
@@ -132,7 +123,7 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         Ok(())
     }
 
-    fn write_check_ieee_float_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_check_ieee_float_fmt(&mut self, info: &AudioInfo) -> Result<()> {
         // Header + fmt header + fmt data + data tag.
         self.data_ck_size_position = 12 + 8 + 18 + 4;
 
@@ -142,31 +133,31 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         // fmt_tag.
         self.writer.write_le_u16(WAVE_FORMAT_IEEE_FLOAT)?;
         
-        self.write_fmt(fmt)?;
+        self.write_fmt(info)?;
         
         // cb_size.
         self.writer.write_le_u16(0)
     }
     
-    fn write_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_fmt(&mut self, info: &AudioInfo) -> Result<()> {
         // n_channels.
-        self.writer.write_le_u16(fmt.channels)?;
+        self.writer.write_le_u16(info.channels)?;
 
         // samples_per_sec.
-        self.writer.write_le_u32(fmt.sample_rate)?;
+        self.writer.write_le_u32(info.sample_rate)?;
         
         // avg_bytes_per_sec.
-        let bytes_per_sec = fmt.sample_rate
-            * (fmt.bits_per_sample / 8) as u32
-            * fmt.channels as u32;
+        let bytes_per_sec = info.sample_rate
+            * (info.bits_per_sample / 8) as u32
+            * info.channels as u32;
 
         self.writer.write_le_u32(bytes_per_sec)?;
         
         // block_align.
-        self.writer.write_le_u16((bytes_per_sec / fmt.sample_rate) as u16)?;
+        self.writer.write_le_u16((bytes_per_sec / info.sample_rate) as u16)?;
             
         // bits_per_sample.
-        self.writer.write_le_u16(fmt.bits_per_sample)
+        self.writer.write_le_u16(info.bits_per_sample)
     }
 
     fn update_headers(&mut self) -> Result<()> {

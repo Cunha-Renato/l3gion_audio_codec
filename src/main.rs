@@ -1,7 +1,7 @@
-use std::{fmt::Debug, io::BufWriter};
+use std::io::BufWriter;
 
 use hound::WavSpec;
-use l3gion_audio_codec::{decoder::LgDecoder, encoder::LgEncoder, error, wav::{self, LgWavDecoder, WavFmt, WavFmtTag}, Sample};
+use l3gion_audio_codec::{decoder::LgDecoder, encoder::LgEncoder, wav::{self, LgWavDecoder, WavFmtTag}, AudioInfo, Sample};
 
 const SAMPLES: [&str; 5] = [
     // "m1f1_alaw",
@@ -24,8 +24,8 @@ fn save_with_houd(samples: Vec<impl hound::Sample + Copy>, format: WavSpec) -> R
     Ok(())
 }
 
-fn save_with_l3gion(samples: Vec<impl Sample>, format: WavFmt) -> Result<(), Box<dyn std::error::Error>> {
-    let mut encoder = wav::LgWavEncoder::new("test_l3gion.wav", format)?;
+fn save_with_l3gion(samples: Vec<impl Sample>, info: AudioInfo) -> Result<(), Box<dyn std::error::Error>> {
+    let mut encoder = wav::LgWavEncoder::new("test_l3gion.wav", info)?;
     
     samples.into_iter().for_each(|s| encoder.encode_sample(s).unwrap());
     encoder.flush()?;
@@ -51,25 +51,17 @@ fn test_write() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn test_l3gion() -> Result<(), Box<dyn std::error::Error>> {
-    // let path = std::format!("samples/{}.wav", SAMPLES[3]);
-    let path = "test_l3gion.wav";
+    let path = std::format!("samples/{}.wav", SAMPLES[3]);
+    // let path = "test_l3gion.wav";
 
     let mut dec = open_l3gion(&path).unwrap();
     let mut reader = open_hound(&path).unwrap();
-    let mut fmt = dec.info();
-    fmt.format = WavFmtTag::WAVE_FORMAT_PCM;
     
-    println!("L3gion FMT: {:#?}", dec);
-    println!("Hound Specs: {:#?}", reader.spec());
-    
-    let l_samples: Vec<i32> = dec.samples().collect();
+    let l_samples: Vec<f32> = dec.samples().collect();
     let h_samples: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
 
-    println!("L3gion samples: {}", dec.len());
-    println!("Hound samples: {}", reader.len());
-
-    save_with_houd(l_samples, reader.spec())?;
-    save_with_l3gion(h_samples, dec.info())?;
+    save_with_houd(h_samples, reader.spec())?;
+    save_with_l3gion(l_samples, dec.info())?;
 
     Ok(())
 }

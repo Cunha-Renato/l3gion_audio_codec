@@ -65,14 +65,7 @@ impl<W: io::Write + io::Seek> LgWriter for W {
     }
 
     fn write_le_i32_24(&mut self, data: i32) -> Result<()> {
-/*      let mut buf = [0u8; 3];
-        buf[0] = ( data &  0xFF) as u8;
-        buf[1] = ((data >> 0x08) & 0xFF) as u8;
-        buf[2] = ((data >> 0x10) & 0xFF) as u8; */
-        
         let buf = data.to_le_bytes();
-        println!("{:?}", buf);
-
         self.write_all(&[buf[0], buf[1], buf[2]])?;
         
         Ok(())
