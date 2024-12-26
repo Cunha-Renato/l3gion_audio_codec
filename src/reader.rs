@@ -1,4 +1,4 @@
-use std::{io, ops::{Deref, DerefMut}};
+use std::io;
 use crate::{tools::u8_to_i8, Result};
 
 pub trait LgReader {
@@ -92,14 +92,12 @@ impl<R: io::Read> LgReader for R {
         let mut buf = [0; 3];
         self.read_exact(&mut buf)?;
 
-        let i32_bytes = [
-            buf[0],
-            buf[1],
-            buf[2],
-            if buf[2] & 0x80 != 0 { 0xFF } else { 0x00 } // Sign extend the top byte
-        ];
-        
-        Ok(i32::from_le_bytes(i32_bytes))
+        Ok(i32::from_le_bytes([
+            buf[0], 
+            buf[1], 
+            buf[2], 
+            if buf[2] & 0x80 != 0 { 0xFF } else { 0x00 } // Sign extend if needed
+        ]))
     }
     
     fn read_le_f32(&mut self) -> Result<f32> {

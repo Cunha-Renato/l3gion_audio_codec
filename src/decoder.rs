@@ -1,7 +1,9 @@
-use crate::{info::LgAudioInfo, Sample};
+use crate::Sample;
 
 pub trait LgDecoder: Sized {
-    fn info(&self) -> LgAudioInfo;
+    type Info;
+
+    fn info(&self) -> Self::Info;
     
     /// Iterator over the samples.
     /// Once you iterate over the elements, calling this again will not be on the start of 

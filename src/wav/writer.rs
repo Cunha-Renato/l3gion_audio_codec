@@ -1,6 +1,6 @@
 use std::io;
 use crate::{error::Error, writer::LgWriter, Result, Sample, SampleType};
-use super::{WavFmt, WAVE_FORMAT_IEEE_FLOAT, WAVE_FORMAT_PCM};
+use super::{WavFmt, WAVE_FORMAT_EXTENSIBLE, WAVE_FORMAT_IEEE_FLOAT, WAVE_FORMAT_PCM};
 
 const RIFF_CK_SIZE_POSITION: usize = 4;
 
@@ -29,16 +29,19 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
             data_ck_size_position: 0,
         };
         
-        result.write_header(fmt)?;
+        result.write_header()?;
         result.write_fmt_chunk(fmt)?;
         result.writer.write(b"data")?;
+        result.writer.write_le_u32(0)?;
 
         Ok(result)
     }
     
     pub fn write_sample<S: Sample>(&mut self, sample: S, sample_type: SampleType, bits_per_sample: u16) -> Result<()> {
+        sample.write(&mut self.writer, sample_type, bits_per_sample)?;
         self.data_bytes_written += bits_per_sample as u32 / 8;
-        sample.write(&mut self.writer, sample_type, bits_per_sample)
+        
+        Ok(())
     }
 
     pub fn flush(&mut self) -> Result<()> {
@@ -52,14 +55,13 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
     
     pub fn finish(&mut self) -> Result<()> {
         self.update_headers()?;
-
         self.writer.flush()?;
         
         Ok(())
     }
 }
 impl<W: io::Write + io::Seek> LgWavWriter<W> {
-    fn write_header(&mut self, fmt: &WavFmt) -> Result<()> {
+    fn write_header(&mut self) -> Result<()> {
         self.writer.write(b"RIFF")?;
 
         // Empty for now. (ck_size) - position 4.
@@ -74,7 +76,14 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         // Writing the standard 16 bytes.
 
         match fmt.format {
-            super::WavFmtTag::WAVE_FORMAT_PCM => self.write_check_pcm_fmt(fmt),
+            super::WavFmtTag::WAVE_FORMAT_PCM => {
+                if fmt.channels > 2 || fmt.bits_per_sample > 16 {
+                    self.write_check_pcm_ex_fmt(fmt)
+                }
+                else {
+                    self.write_check_pcm_fmt(fmt)
+                }
+            },
             super::WavFmtTag::WAVE_FORMAT_IEEE_FLOAT => self.write_check_ieee_float_fmt(fmt),
             
             _ => panic!("This should not happen!"),
@@ -92,6 +101,35 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
         self.writer.write_le_u16(WAVE_FORMAT_PCM)?;
 
         self.write_fmt(fmt)
+    }
+
+    fn write_check_pcm_ex_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
+        // Header + fmt header + fmt data + data tag.
+        self.data_ck_size_position = 12 + 8 + 40 + 4;
+        
+        // ck_size of 40.
+        self.writer.write_le_u32(40)?;
+
+        // fmt_tag.
+        self.writer.write_le_u16(WAVE_FORMAT_EXTENSIBLE)?;
+
+        self.write_fmt(fmt)?;
+            
+        // cb_size.
+        self.writer.write_le_u16(22)?;
+        
+        // valid_bits_per_sample.
+        self.writer.write_le_u16(fmt.bits_per_sample)?;
+        
+        // channel_mask.
+        let channels = if fmt.channels > 18 { 18 } else { fmt.channels };
+        self.writer.write_le_u32(channels as u32)?;
+        
+        // sub_format.
+        self.writer.write(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80,
+            0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71])?;
+        
+        Ok(())
     }
 
     fn write_check_ieee_float_fmt(&mut self, fmt: &WavFmt) -> Result<()> {
@@ -132,7 +170,7 @@ impl<W: io::Write + io::Seek> LgWavWriter<W> {
     }
 
     fn update_headers(&mut self) -> Result<()> {
-        let file_size = self.data_bytes_written + 4 + self.data_ck_size_position as u32;
+        let file_size = self.data_bytes_written + self.data_ck_size_position as u32 - 4;
         
         // RIFF ck_size.
         self.writer.go_to(RIFF_CK_SIZE_POSITION)?;

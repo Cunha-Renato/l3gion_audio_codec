@@ -29,15 +29,21 @@ impl<W: io::Write + io::Seek> LgWriter for W {
     }
 
     fn write_le_u8(&mut self, data: u8) -> Result<()> {
-        write_bytes(self, &[data])
+        self.write(&[data])?;
+
+        Ok(())
     }
 
     fn write_le_u16(&mut self, data: u16) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write(&data.to_le_bytes())?;
+
+        Ok(())
     }
 
     fn write_le_u32(&mut self, data: u32) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write(&data.to_le_bytes())?;
+
+        Ok(())
     }
 
     fn write_le_i8(&mut self, data: i8) -> Result<()> {
@@ -47,34 +53,40 @@ impl<W: io::Write + io::Seek> LgWriter for W {
     }
 
     fn write_le_i16(&mut self, data: i16) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write(&data.to_le_bytes())?;
+
+        Ok(())
     }
 
     fn write_le_i32(&mut self, data: i32) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write(&data.to_le_bytes())?;
+
+        Ok(())
     }
 
     fn write_le_i32_24(&mut self, data: i32) -> Result<()> {
-        let clamped = data.clamp(-8_388_608, 8_388_607); // Clamp to 24-bit range
-        let bytes = [
-            (clamped & 0xFF) as u8,
-            ((clamped >> 8) & 0xFF) as u8,
-            ((clamped >> 16) & 0xFF) as u8,
-        ];
+/*      let mut buf = [0u8; 3];
+        buf[0] = ( data &  0xFF) as u8;
+        buf[1] = ((data >> 0x08) & 0xFF) as u8;
+        buf[2] = ((data >> 0x10) & 0xFF) as u8; */
+        
+        let buf = data.to_le_bytes();
+        println!("{:?}", buf);
 
-        write_bytes(self, &bytes)
+        self.write_all(&[buf[0], buf[1], buf[2]])?;
+        
+        Ok(())
     }
 
     fn write_le_f32(&mut self, data: f32) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write_all(&data.to_le_bytes())?;
+        
+        Ok(())
     }
 
     fn write_le_f64(&mut self, data: f64) -> Result<()> {
-        write_bytes(self, &data.to_le_bytes())
+        self.write_all(&data.to_le_bytes())?;
+        
+        Ok(())
     }
-}
-pub fn write_bytes<W: io::Write + io::Seek>(writer: &mut W, bytes: &[u8]) -> Result<()> {
-    writer.write(&bytes)?;
-    
-    Ok(())
 }

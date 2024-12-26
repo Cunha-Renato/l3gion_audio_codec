@@ -1,6 +1,6 @@
 use std::{fs, io, path};
 
-use crate::{encoder::LgEncoder, info::LgAudioInfo, Result, SampleType};
+use crate::{encoder::LgEncoder, Result, SampleType};
 use super::{writer::LgWavWriter, WavFmt};
 
 pub struct LgWavEncoder<W: io::Write + io::Seek> {
@@ -22,13 +22,15 @@ impl LgWavEncoder<io::BufWriter<fs::File>> {
         self.writer.flush()
     }
     
-    pub fn finish(&mut self) -> Result<()> {
+    pub fn finish(mut self) -> Result<()> {
         self.writer.finish()
     }
 }
 impl<W: io::Write + io::Seek>  LgEncoder for LgWavEncoder<W> {
-    fn info(&self) -> LgAudioInfo {
-        LgAudioInfo::WAV(self.fmt)
+    type Info = WavFmt;
+
+    fn info(&self) -> Self::Info {
+        self.fmt
     }
     
     fn encode_sample<S: crate::Sample>(&mut self, sample: S) -> Result<()> {

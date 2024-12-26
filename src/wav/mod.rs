@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
-use std::{fmt::Debug, io};
+use std::fmt::Debug;
 use crate::reader::LgReader;
-use crate::{Sample, SampleType};
+use crate::{LgAudioInfo, Sample, SampleType};
 
 pub mod decoder;
 pub mod encoder;
@@ -70,6 +70,7 @@ pub struct WavFmt {
     pub sample_rate: u32,
     pub bits_per_sample: u16,
 }
+impl LgAudioInfo for WavFmt {}
 
 // ------------------------- SAMPLE --------------------------
 

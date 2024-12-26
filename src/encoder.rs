@@ -1,7 +1,9 @@
-use crate::{info::LgAudioInfo, Sample, Result};
+use crate::{Sample, Result};
 
 pub trait LgEncoder {
-    fn info(&self) -> LgAudioInfo;
+    type Info;
+
+    fn info(&self) -> Self::Info;
     
     fn encode_sample<S: Sample>(&mut self, sample: S) -> Result<()>;
     
