@@ -1,6 +1,7 @@
 [package]
-name = "lg_audiof"
+name = "l3gion_audio_codec"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+hound = "3.0.0"
